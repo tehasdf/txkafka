@@ -68,13 +68,14 @@ class KafkaReceiver(object):
     def finishParsing(self, reason):
         print 're', reason
 
-
+    def foo(self, msg):
+        print 'foo', repr(msg)
 
 grammar_source = """
 
 int32 = <anything{4}>:d -> parseInt32(d)
-responseMessage = <anything>*
-receiveResponse = int32:size int32:correlationId responseMessage:msg
+responseMessage = <anything{10}>
+receiveResponse = int32:size int32:correlationId responseMessage:msg -> receiver.foo(msg)
 """
 
 
@@ -96,17 +97,13 @@ def zkconnected(z):
     val, meta = yield z.get('/brokers/ids/%d' % (broker, ))
     val = json.loads(val)
     host, port = val['host'], val['port']
-    print 'asd', host, port
     ep = TCP4ClientEndpoint(reactor, host, port)
     proto = KafkaClientProtocol()
     yield connectProtocol(ep, proto)
-    print 'asd', dir(proto)
     md = yield proto.sender.metadataRequest(topics=['test'])
     leader = md.topics['test'].partitions[0].leader
     broker = md.brokers[leader].host, md.brokers[leader].port
-    print 'aa', broker
     proto.fetchRequest('test', 0, 0)
-    print 'xd'
 
 log.startLogging(sys.stderr)
 zk.connect().addCallback(zkconnected).addErrback(log.err)
