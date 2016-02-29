@@ -34,6 +34,7 @@ class KafkaSender(object):
         self._transport = transport
         self._nextCorrelationId = count()
         self._waiting = {}
+        self._types = {}
 
     def metadataRequest(self, topics=None):
         if topics is None:
@@ -48,6 +49,7 @@ class KafkaSender(object):
         ])
         d = Deferred()
         self._waiting[correlationid] = d
+        self._types[correlationid] = 'metadataRequest'
         self.sendPacket(encoded)
         return d
 
@@ -63,26 +65,60 @@ class KafkaReceiver(object):
         self._sender = sender
 
     def prepareParsing(self, protocol):
-        pass
+        self.messageSize = None
+        self.currentRule = 'receiveResponse'
 
     def finishParsing(self, reason):
-        print 're', reason
+        print 're', repr(reason)
 
-    def foo(self, msg):
-        print 'foo', repr(msg)
+    def foo(self, correlationId, msg):
+        print 'foo', correlationId, repr(msg)
+
+    def prepareReceiveMessage(self, size, correlationId):
+        req = self._sender._types.get(correlationId)
+        self.currentRule = {'metadataRequest': 'metadataResponse'}.get(req, 'receiveUnknown')
+        self.messageSize = size
+
+
+    def receivedUnknown(self, data):
+        print 'unk', repr(data)
+
+    def receivedMetadataResponse(self, a, b):
+        print 'mr', a, b
+
 
 grammar_source = """
-
+int16 = <anything{2}>:d -> parseInt16(d)
 int32 = <anything{4}>:d -> parseInt32(d)
+string = int16:size <anything{size}>:data -> data
+
 responseMessage = <anything{10}>
-receiveResponse = int32:size int32:correlationId responseMessage:msg -> receiver.foo(msg)
+receiveResponse = (int32:s -> s-4):size int32:correlationId -> receiver.prepareReceiveMessage(size, correlationId)
+receiveUnknown = ( -> receiver.messageSize):size  <anything{size}>:data -> receiver.receivedUnknown(data)
+
+broker = int32:nodeId string:host int32:port -> (nodeId, host, port)
+brokerList = int32:num broker{num}:brokers -> brokers
+
+int32list = int32:num int32{num}:nums -> nums
+
+partitionMetadata = int16:partitionErrorCode int32:partitionId int32:leader int32list:replicas int32list:isr -> (partitionErrorCode, partitionId, leader, replicas, isr)
+partitionMetadataList = int32:num partitionMetadata{num}:partitions -> partitions
+
+topicMetadata = int16:topicErrorCode string:topicName partitionMetadataList:partitionMetadata -> (topicErrorCode, topicName, partitionMetadata)
+topicMetadataList = int32:num topicMetadata{num}:topics -> topics
+
+metadataResponse = brokerList:brokers topicMetadataList:topicMetadata -> receiver.receivedMetadataResponse(brokers, topicMetadata)
 """
 
+
+def parseInt16(data):
+    return struct.unpack('>H', data)[0]
 
 def parseInt32(data):
     return struct.unpack('>I', data)[0]
 
 bindings = {
+    'parseInt16': parseInt16,
     'parseInt32': parseInt32
 }
 
@@ -101,9 +137,9 @@ def zkconnected(z):
     proto = KafkaClientProtocol()
     yield connectProtocol(ep, proto)
     md = yield proto.sender.metadataRequest(topics=['test'])
-    leader = md.topics['test'].partitions[0].leader
-    broker = md.brokers[leader].host, md.brokers[leader].port
-    proto.fetchRequest('test', 0, 0)
+    # leader = md.topics['test'].partitions[0].leader
+    # broker = md.brokers[leader].host, md.brokers[leader].port
+    # proto.fetchRequest('test', 0, 0)
 
 log.startLogging(sys.stderr)
 zk.connect().addCallback(zkconnected).addErrback(log.err)
