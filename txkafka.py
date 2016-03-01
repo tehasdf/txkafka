@@ -104,6 +104,13 @@ def responder(f):
         )
     return _inner
 
+from ometa.grammar import OMeta
+from ometa.tube import TrampolinedParser
+
+class MessageSetReceiver(object):
+    currentRule = 'messageSet'
+    def messageSetReceived(self, offset, m):
+        print 'messageSetReceived', offset, m
 
 class KafkaReceiver(object):
     currentRule = 'receiveResponse'
@@ -111,6 +118,16 @@ class KafkaReceiver(object):
 
     def __init__(self, sender):
         self._sender = sender
+        self._messageSetGrammar = OMeta(grammar_source).parseGrammar('messageSetGrammar')
+        self._parsers = {}
+
+
+    def _getMessageSetParser(self, topicName):
+        if topicName not in self._parsers:
+            receiver = MessageSetReceiver()
+            self._parsers[topicName] = TrampolinedParser(grammar=self._messageSetGrammar,
+            receiver=receiver, bindings=globalBindings)
+        return self._parsers[topicName]
 
     def prepareParsing(self, protocol):
         self.messageSize = None
@@ -159,8 +176,18 @@ class KafkaReceiver(object):
         pass
 
     @responder
-    def receivedFetchResponse(self, r):
-        print 'r', r
+    def receivedFetchResponse(self, responses):
+        for topicName, topicDetails in responses:
+            # XXX it needs to also use separate parsers for each partition
+            # and maybe check that offsets are ok?
+            messageSetParser = self._getMessageSetParser(topicName)
+            for partition, errorCode, highwaterMarkOffset, part in topicDetails:
+                if errorCode != 0:
+                    raise ValueError(
+                        'Topic fetch error: {topic}/{partition}: {error}'.format(
+                        topic=topicName, partition=partition, error=errorCode))
+                print 'part', repr(part)
+                # messageSetParser.receive(part)
 
     def cleanup(self, response):
         self.messageSize = None
@@ -182,15 +209,21 @@ def parseInt32(data):
 def parseInt64(data):
     return struct.unpack('>q', data)[0]
 
-bindings = {
+receivedLogger = Logger('Receiving')
+def _doLog(a):
+    receivedLogger.debug('{a!r}', a=a)
+    return a
+
+globalBindings = {
     'parseInt8': parseInt8,
     'parseInt16': parseInt16,
     'parseInt32': parseInt32,
-    'parseInt64': parseInt64
+    'parseInt64': parseInt64,
+    'log': _doLog
 }
 
 KafkaClientProtocol = makeProtocol(grammar_source, KafkaSender, KafkaReceiver,
-    bindings=bindings)
+    bindings=globalBindings)
 
 
 @inlineCallbacks
@@ -213,7 +246,7 @@ def zkconnected(z, reactor):
         maxWaitTime=10,
         minBytes=0,
         topics=[
-            ('test', [(0, 0, 10)])
+            ('test', [(0, 0, 65535)])
         ])
 
 

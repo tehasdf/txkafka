@@ -27,8 +27,9 @@ produceResponse = int32:num produceResponseItem{num}:responses -> receiver.recei
 
 
 message = int32:crc int8:magicByte int8:attributes int64:timestamp bytes:key bytes:value -> (crc, magicByte, attributes, timestamp, key, value)
-messageSet = int64:offset int32:messageSize message:m -> (offset, m)
-topicResponseItem = int32:partition int16:errorCode int64:highwaterMarkOffset int32:messageSetSize messageSet:messages -> (partition, errorCode, highwaterMarkOffset, messages)
+messageSet = int64:offset int32:messageSize message:m -> receiver.messageSetReceived(offset, m)
+
+topicResponseItem = int32:partition int16:errorCode int64:highwaterMarkOffset int32:messageSetSize <anything{messageSetSize}>:messageSetPart -> (partition, errorCode, highwaterMarkOffset, messageSetPart)
 fetchResponseItem = string:topicName int32:num topicResponseItem{num}:topicDetails -> (topicName, topicDetails)
 fetchResponse = int32:num fetchResponseItem{num}:responses -> receiver.receivedFetchResponse(responses)  # not tested
 
