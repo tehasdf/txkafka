@@ -1,12 +1,13 @@
 from __future__ import division
 
+from functools import wraps
 from itertools import count
 import json
 import struct
 import sys
 from twisted.internet import reactor
 
-from twisted.internet.defer import Deferred, inlineCallbacks
+from twisted.internet.defer import Deferred, inlineCallbacks, maybeDeferred
 from twisted.internet.protocol import Protocol, Factory
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 from twisted.python import log
@@ -28,6 +29,18 @@ def encodeArray(seq, elementEncoder=lambda elem: elem):
     prefix = struct.pack('>I', len(seq))
     return prefix + b''.join(elementEncoder(e) for e in seq)
 
+def _encodeTopicFetchRequest(elem):
+
+    def _encodeTopicMeta(meta):
+        partition, offset, maxbytes = meta
+        return struct.pack('>IQI', partition, offset, maxbytes)
+
+    name, meta = elem
+    print 'xD', meta
+    return b''.join([
+        encodeString(name),
+        encodeArray(meta, elementEncoder=_encodeTopicMeta)
+    ])
 
 class KafkaSender(object):
     def __init__(self, transport):
@@ -56,15 +69,26 @@ class KafkaSender(object):
     def fetchRequest(self, replicaId, maxWaitTime, minBytes, topics):
         apikey = 1
         apiversion = 0
+        correlationid = next(self._nextCorrelationId)
 
         encoded = b''.join([
-            struct.pack('>III')
+            struct.pack('>HHI', apikey, apiversion, correlationid),
+            struct.pack('>III', replicaId, maxWaitTime, minBytes),
+            encodeArray(topics, elementEncoder=_encodeTopicFetchRequest)
         ])
 
     def sendPacket(self, packet):
         prefixed = struct.pack('>I', len(packet)) + packet
-        print 'sending', repr(prefixed)
         self._transport.write(prefixed)
+
+
+
+def responder(f):
+    @wraps(f)
+    def _inner(self, *args, **kwargs):
+        d = self._sender._waiting[self.correlationId]
+        maybeDeferred(f, self, *args, **kwargs).chainDeferred(d)
+    return _inner
 
 
 class KafkaReceiver(object):
@@ -83,6 +107,7 @@ class KafkaReceiver(object):
         print 'foo', correlationId, repr(msg)
 
     def prepareReceiveMessage(self, size, correlationId):
+        self.correlationId = correlationId
         req = self._sender._types.get(correlationId)
         self.currentRule = {'metadataRequest': 'metadataResponse'}.get(req, 'receiveUnknown')
         self.messageSize = size
@@ -91,14 +116,28 @@ class KafkaReceiver(object):
     def receivedUnknown(self, data):
         print 'unk', repr(data)
 
-    def receivedMetadataResponse(self, a, b):
-        print 'mr', a, b
+    @responder
+    def receivedMetadataResponse(self, brokers, topicmetadata):
+        brokers = {nodeId: (host, port) for nodeId, host, port in brokers}
+        topics = {}
+        for topicErrorCode, topicName, partitionmetadata in topicmetadata:
+            if topicErrorCode != 0:
+                continue
+            partitions = {}
+            for partitionErrorCode, partitionId, leader, replicas, isr in partitionmetadata:
+                if partitionErrorCode != 0:
+                    continue
+                partitions[partitionId] = (leader, replicas, isr)
+            topics[topicName] = partitions
+        return brokers, topics
 
+    @responder
     def receivedProduceResponse(self, r):
         pass
 
+    @responder
     def receivedFetchResponse(self, r):
-        pass
+        print 'r', r
 
 
 grammar_source = open('txkafka.grammar').read()
@@ -136,10 +175,17 @@ def zkconnected(z):
     ep = TCP4ClientEndpoint(reactor, host, port)
     proto = KafkaClientProtocol()
     yield connectProtocol(ep, proto)
-    md = yield proto.sender.metadataRequest(topicNames=['test'])
-    # leader = md.topics['test'].partitions[0].leader
-    # broker = md.brokers[leader].host, md.brokers[leader].port
-    # proto.fetchRequest('test', 0, 0)
+    brokers, topics = yield proto.sender.metadataRequest(topicNames=['test'])
+
+    test_zero_md = topics['test'][0]
+    leader, replicas, isr = test_zero_md
+
+    r = yield proto.sender.fetchRequest(replicaId=leader,
+        maxWaitTime=0,
+        minBytes=0,
+        topics=[
+            ('test', [(0, 0, 65535)])
+        ])
 
 log.startLogging(sys.stderr)
 zk.connect().addCallback(zkconnected).addErrback(log.err)
