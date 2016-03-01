@@ -5,12 +5,13 @@ from itertools import count
 import json
 import struct
 import sys
-from twisted.internet import reactor
 
+from twisted.logger import Logger, globalLogBeginner, textFileLogObserver
 from twisted.internet.defer import Deferred, inlineCallbacks, maybeDeferred
+from twisted.internet.task import react
 from twisted.internet.protocol import Protocol, Factory
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
-from twisted.python import log
+
 from txzookeeper import ZookeeperClient
 
 zk = ZookeeperClient(servers='localhost:2181')
@@ -19,6 +20,7 @@ zk = ZookeeperClient(servers='localhost:2181')
 from parsley import makeProtocol
 
 
+log = Logger()
 
 def encodeString(string):
     assert isinstance(string, bytes)
@@ -36,13 +38,15 @@ def _encodeTopicFetchRequest(elem):
         return struct.pack('>IQI', partition, offset, maxbytes)
 
     name, meta = elem
-    print 'xD', meta
+
     return b''.join([
         encodeString(name),
         encodeArray(meta, elementEncoder=_encodeTopicMeta)
     ])
 
 class KafkaSender(object):
+    log = Logger()
+
     def __init__(self, transport):
         self._transport = transport
         self._nextCorrelationId = count()
@@ -76,8 +80,14 @@ class KafkaSender(object):
             struct.pack('>III', replicaId, maxWaitTime, minBytes),
             encodeArray(topics, elementEncoder=_encodeTopicFetchRequest)
         ])
+        d = Deferred()
+        self._waiting[correlationid] = d
+        self._types[correlationid] = 'fetchRequest'
+        self.sendPacket(encoded)
+        return d
 
     def sendPacket(self, packet):
+        self.log.debug('Sending packet: {length} bytes', length=len(packet))
         prefixed = struct.pack('>I', len(packet)) + packet
         self._transport.write(prefixed)
 
@@ -93,6 +103,8 @@ def responder(f):
 
 class KafkaReceiver(object):
     currentRule = 'receiveResponse'
+    log = Logger()
+
     def __init__(self, sender):
         self._sender = sender
 
@@ -107,9 +119,16 @@ class KafkaReceiver(object):
         print 'foo', correlationId, repr(msg)
 
     def prepareReceiveMessage(self, size, correlationId):
+        log.debug('prepare')
         self.correlationId = correlationId
         req = self._sender._types.get(correlationId)
-        self.currentRule = {'metadataRequest': 'metadataResponse'}.get(req, 'receiveUnknown')
+        self.currentRule = {
+            'metadataRequest': 'metadataResponse',
+            'fetchRequest': 'fetchResponse'
+
+        }.get(req, 'receiveUnknown')
+        log.debug('Now receiving {type}', type=self.currentRule)
+
         self.messageSize = size
 
 
@@ -165,7 +184,7 @@ KafkaClientProtocol = makeProtocol(grammar_source, KafkaSender, KafkaReceiver,
     bindings=bindings)
 
 @inlineCallbacks
-def zkconnected(z):
+def zkconnected(z, reactor):
     val, meta = yield z.get('/brokers/topics/test/partitions/0/state')
 
     broker = json.loads(val)['isr'][0]
@@ -187,6 +206,10 @@ def zkconnected(z):
             ('test', [(0, 0, 65535)])
         ])
 
-log.startLogging(sys.stderr)
-zk.connect().addCallback(zkconnected).addErrback(log.err)
-reactor.run()
+
+def main(reactor):
+    globalLogBeginner.beginLoggingTo([textFileLogObserver(sys.stderr)])
+    return zk.connect().addCallback(zkconnected, reactor).addErrback(log.error)
+
+if __name__ == '__main__':
+    react(main)
