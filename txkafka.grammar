@@ -2,8 +2,13 @@ int8 = anything:d -> parseInt8(d)
 int16 = <anything{2}>:d -> parseInt16(d)
 int32 = <anything{4}>:d -> parseInt32(d)
 int64 = <anything{8}>:d -> parseInt64(d)
-string = int16:size <anything{size}>:data -> data
-bytes = int32:size <anything{size}>:data -> data
+
+strlen = <anything{2}>:d -> max([0, parseInt16(d)])
+string = strlen:size <anything{size}>:data -> data
+
+byteslen = <anything{4}>:d -> max([0, parseInt32(d)])
+bytes = byteslen:size <anything{size}>:data -> data
+
 int32list = int32:num int32{num}:nums -> nums
 
 receiveResponse = (int32:s -> s-4):size int32:correlationId -> receiver.prepareReceiveMessage(size, correlationId)
@@ -26,8 +31,11 @@ produceResponseItem = string:topicName partitionProduceResponseList:l -> (topicN
 produceResponse = int32:num produceResponseItem{num}:responses -> receiver.receivedProduceResponse(responses)  # not tested
 
 
-message = int32:crc int8:magicByte int8:attributes int64:timestamp bytes:key bytes:value -> (crc, magicByte, attributes, timestamp, key, value)
-messageSet = int64:offset int32:messageSize message:m -> receiver.messageSetReceived(offset, m)
+message = int32:crc int8:magicByte int8:attributes bytes:key bytes:value -> (crc, magicByte, attributes, key, value)
+messageSetPart = int64:offset int32:messageSize message:m -> (offset, m)
+messageSet = messageSetPart*
+
+receiveMessageSet = messageSet:m -> receiver.messageSetReceived(*m)
 
 topicResponseItem = int32:partition int16:errorCode int64:highwaterMarkOffset int32:messageSetSize <anything{messageSetSize}>:messageSetPart -> (partition, errorCode, highwaterMarkOffset, messageSetPart)
 fetchResponseItem = string:topicName int32:num topicResponseItem{num}:topicDetails -> (topicName, topicDetails)
