@@ -77,8 +77,9 @@ class KafkaSender(object):
 
         encoded = b''.join([
             struct.pack('>hhi', apikey, apiversion, correlationid),
+            encodeString('asdf'),
             struct.pack('>iii', replicaId, maxWaitTime, minBytes),
-            encodeArray([], elementEncoder=_encodeTopicFetchRequest)
+            encodeArray(topics, elementEncoder=_encodeTopicFetchRequest)
         ])
         d = Deferred()
         self._waiting[correlationid] = d
@@ -97,7 +98,10 @@ def responder(f):
     @wraps(f)
     def _inner(self, *args, **kwargs):
         d = self._sender._waiting[self.correlationId]
-        maybeDeferred(f, self, *args, **kwargs).chainDeferred(d)
+        (maybeDeferred(f, self, *args, **kwargs)
+            .chainDeferred(d)
+            .addBoth(self.cleanup)
+        )
     return _inner
 
 
@@ -158,6 +162,11 @@ class KafkaReceiver(object):
     def receivedFetchResponse(self, r):
         print 'r', r
 
+    def cleanup(self, response):
+        self.messageSize = None
+        self.currentRule = 'receiveResponse'
+        self.correlationId = None
+
 
 grammar_source = open('txkafka.grammar').read()
 
@@ -183,6 +192,7 @@ bindings = {
 KafkaClientProtocol = makeProtocol(grammar_source, KafkaSender, KafkaReceiver,
     bindings=bindings)
 
+
 @inlineCallbacks
 def zkconnected(z, reactor):
     val, meta = yield z.get('/brokers/topics/test/partitions/0/state')
@@ -195,15 +205,15 @@ def zkconnected(z, reactor):
     proto = KafkaClientProtocol()
     yield connectProtocol(ep, proto)
     brokers, topics = yield proto.sender.metadataRequest(topicNames=['test'])
-
+    log.debug('Brokers: {brokers!r}', brokers=brokers)
     test_zero_md = topics['test'][0]
     leader, replicas, isr = test_zero_md
 
     r = yield proto.sender.fetchRequest(replicaId=-1,
-        maxWaitTime=0,
+        maxWaitTime=10,
         minBytes=0,
         topics=[
-            ('test', [(0, 0, 65535)])
+            ('test', [(0, 0, 10)])
         ])
 
 
