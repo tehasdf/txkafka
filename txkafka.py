@@ -24,18 +24,18 @@ log = Logger()
 
 def encodeString(string):
     assert isinstance(string, bytes)
-    return struct.pack('>H', len(string)) + string
+    return struct.pack('>h', len(string)) + string
 
 
 def encodeArray(seq, elementEncoder=lambda elem: elem):
-    prefix = struct.pack('>I', len(seq))
+    prefix = struct.pack('>i', len(seq))
     return prefix + b''.join(elementEncoder(e) for e in seq)
 
 def _encodeTopicFetchRequest(elem):
 
     def _encodeTopicMeta(meta):
         partition, offset, maxbytes = meta
-        return struct.pack('>IQI', partition, offset, maxbytes)
+        return struct.pack('>iqi', partition, offset, maxbytes)
 
     name, meta = elem
 
@@ -60,7 +60,7 @@ class KafkaSender(object):
         apiversion = 0
         correlationid = next(self._nextCorrelationId)
         encoded = b''.join([
-            struct.pack('>HHI', apikey, apiversion, correlationid),
+            struct.pack('>hhi', apikey, apiversion, correlationid),
             encodeString('asdf'),
             encodeArray(topicNames, elementEncoder=encodeString)
         ])
@@ -76,9 +76,9 @@ class KafkaSender(object):
         correlationid = next(self._nextCorrelationId)
 
         encoded = b''.join([
-            struct.pack('>HHI', apikey, apiversion, correlationid),
-            struct.pack('>III', replicaId, maxWaitTime, minBytes),
-            encodeArray(topics, elementEncoder=_encodeTopicFetchRequest)
+            struct.pack('>hhi', apikey, apiversion, correlationid),
+            struct.pack('>iii', replicaId, maxWaitTime, minBytes),
+            encodeArray([], elementEncoder=_encodeTopicFetchRequest)
         ])
         d = Deferred()
         self._waiting[correlationid] = d
@@ -162,16 +162,16 @@ class KafkaReceiver(object):
 grammar_source = open('txkafka.grammar').read()
 
 def parseInt8(data):
-    return struct.unpack('B', data)[0]
+    return struct.unpack('b', data)[0]
 
 def parseInt16(data):
-    return struct.unpack('>H', data)[0]
+    return struct.unpack('>h', data)[0]
 
 def parseInt32(data):
-    return struct.unpack('>I', data)[0]
+    return struct.unpack('>i', data)[0]
 
 def parseInt64(data):
-    return struct.unpack('>Q', data)[0]
+    return struct.unpack('>q', data)[0]
 
 bindings = {
     'parseInt8': parseInt8,
@@ -199,7 +199,7 @@ def zkconnected(z, reactor):
     test_zero_md = topics['test'][0]
     leader, replicas, isr = test_zero_md
 
-    r = yield proto.sender.fetchRequest(replicaId=leader,
+    r = yield proto.sender.fetchRequest(replicaId=-1,
         maxWaitTime=0,
         minBytes=0,
         topics=[
