@@ -1,5 +1,6 @@
 from __future__ import division
 
+from binascii import crc32
 from functools import wraps
 from itertools import count
 import json
@@ -26,6 +27,9 @@ def encodeString(string):
     assert isinstance(string, bytes)
     return struct.pack('>h', len(string)) + string
 
+def encodeBytes(string):
+    assert isinstance(string, bytes)
+    return struct.pack('>i', len(string)) + string
 
 def encodeArray(seq, elementEncoder=lambda elem: elem):
     prefix = struct.pack('>i', len(seq))
@@ -42,6 +46,45 @@ def _encodeTopicFetchRequest(elem):
     return b''.join([
         encodeString(name),
         encodeArray(meta, elementEncoder=_encodeTopicMeta)
+    ])
+
+
+def _encodeMessageSet(messages):
+    all_encoded = []
+    for message in messages:
+        offset, magic, key, value = message
+        attrs = 0
+        message_bytes = b''.join([
+            struct.pack('>bb', magic, attrs),
+            '\xff\xff\xff\xff' if key is None else encodeBytes(key),
+            encodeBytes(value)
+        ])
+        encoded = struct.pack('>qii',
+            offset,
+            len(message_bytes) + 4,  # add 4 for crc
+            crc32(message_bytes)
+        ) + message_bytes
+
+        all_encoded.append(encoded)
+
+    return b''.join(all_encoded)
+
+
+def _encodeProducePartition(partitionData):
+    partition, messages = partitionData
+    mset = _encodeMessageSet(messages)
+    msetSize = len(mset)
+
+    return b''.join([
+        struct.pack('>ii', partition, msetSize),
+        mset
+    ])
+
+def _encodeProduceTopic(topic):
+    name, partition_messages = topic
+    return b''.join([
+        encodeString(name),
+        encodeArray(partition_messages, elementEncoder=_encodeProducePartition)
     ])
 
 class KafkaSender(object):
@@ -86,6 +129,19 @@ class KafkaSender(object):
         self._types[correlationid] = 'fetchRequest'
         self.sendPacket(encoded)
         return d
+
+    def produceRequest(self, requiredAcks, timeout, topics):
+        apikey = 0
+        apiversion = 0
+        correlationid = next(self._nextCorrelationId)
+
+        encoded = b''.join([
+            struct.pack('>hhi', apikey, apiversion, correlationid),
+            encodeString('asdf'),
+            struct.pack('>hi', requiredAcks, timeout),
+            encodeArray(topics, elementEncoder=_encodeProduceTopic)
+        ])
+
 
     def sendPacket(self, packet):
         self.log.debug('Sending packet: {length} bytes', length=len(packet))
