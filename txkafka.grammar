@@ -11,31 +11,121 @@ bytes = byteslen:size <anything{size}>:data -> data
 
 int32list = int32:num int32{num}:nums -> nums
 
-receiveResponse = (int32:s -> s-4):size int32:correlationId -> receiver.prepareReceiveMessage(size, correlationId)
+
+receiveResponse =
+    (int32:s -> s-4):size
+    int32:correlationId
+    -> receiver.prepareReceiveMessage(size, correlationId)
 
 
-broker = int32:nodeId string:host int32:port -> (nodeId, host, port)
-brokerList = int32:num broker{num}:brokers -> brokers
-
-partitionMetadata = int16:partitionErrorCode int32:partitionId int32:leader int32list:replicas int32list:isr -> (partitionErrorCode, partitionId, leader, replicas, isr)
-partitionMetadataList = int32:num partitionMetadata{num}:partitions -> partitions
-
-topicMetadata = int16:topicErrorCode string:topicName partitionMetadataList:partitionMetadata -> (topicErrorCode, topicName, partitionMetadata)
-topicMetadataList = int32:num topicMetadata{num}:topics -> topics
-
-metadataResponse = brokerList:brokers topicMetadataList:topicMetadata -> receiver.receivedMetadataResponse(brokers, topicMetadata)
-
-partitionProduceResponse = int32:partition int16:errorCode int64:offset -> (partition, errorCode, offset)
-partitionProduceResponseList = int32:num partitionProduceResponse{num}:l -> l
-produceResponseItem = string:topicName partitionProduceResponseList:l -> (topicName, l)
-produceResponse = int32:num produceResponseItem{num}:responses -> receiver.receivedProduceResponse(responses)  # not tested
+receiveUnknown =
+    ( -> receiver.messageSize):size
+    <anything{size}>:data
+    -> receiver.receivedUnknown(data)
 
 
-message = int32:crc int8:magicByte int8:attributes bytes:key bytes:value -> (crc, magicByte, attributes, key, value)
-messageSetPart = int64:offset int32:messageSize message:m -> receiver.receiveMessage(offset, m)
+# Metadata response
 
-topicResponseItem = int32:partition int16:errorCode int64:highwaterMarkOffset int32:messageSetSize <anything{messageSetSize}>:messageSetPart -> (partition, errorCode, highwaterMarkOffset, messageSetPart)
-fetchResponseItem = string:topicName int32:num topicResponseItem{num}:topicDetails -> (topicName, topicDetails)
-fetchResponse = int32:num fetchResponseItem{num}:responses -> receiver.receivedFetchResponse(responses)  # not tested
+broker =
+    int32:nodeId
+    string:host
+    int32:port
+    -> (nodeId, host, port)
 
-receiveUnknown = ( -> receiver.messageSize):size  <anything{size}>:data -> receiver.receivedUnknown(data)
+brokerList =
+    int32:num
+    broker{num}:brokers
+    -> brokers
+
+partitionMetadata =
+    int16:partitionErrorCode
+    int32:partitionId
+    int32:leader
+    int32list:replicas
+    int32list:isr
+    -> (partitionErrorCode, partitionId, leader, replicas, isr)
+
+partitionMetadataList =
+    int32:num
+    partitionMetadata{num}:partitions
+    -> partitions
+
+topicMetadata =
+    int16:topicErrorCode
+    string:topicName
+    partitionMetadataList:partitionMetadata
+    -> (topicErrorCode, topicName, partitionMetadata)
+
+
+topicMetadataList =
+    int32:num
+    topicMetadata{num}:topics
+    -> topics
+
+metadataResponse =
+    brokerList:brokers
+    topicMetadataList:topicMetadata
+    -> receiver.receivedMetadataResponse(brokers, topicMetadata)
+
+
+# Produce response
+
+partitionProduceResponse =
+    int32:partition
+    int16:errorCode
+    int64:offset
+    -> (partition, errorCode, offset)
+
+partitionProduceResponseList =
+    int32:num
+    partitionProduceResponse{num}:l
+    -> l
+
+produceResponseItem =
+    string:topicName
+    partitionProduceResponseList:l
+    -> (topicName, l)
+
+produceResponse =
+    int32:num
+    produceResponseItem{num}:responses
+    -> receiver.receivedProduceResponse(responses)  # not tested
+
+
+# Message set
+
+message =
+    int32:crc
+    int8:magicByte
+    int8:attributes
+    bytes:key
+    bytes:value
+    -> (crc, magicByte, attributes, key, value)
+
+messageSetPart =
+    int64:offset
+    int32:messageSize
+    message:m
+    -> receiver.receiveMessage(offset, m)
+
+topicResponseItem =
+    int32:partition
+    int16:errorCode
+    int64:highwaterMarkOffset
+    int32:messageSetSize
+    <anything{messageSetSize}>:messageSetBytes
+    -> (partition, errorCode, highwaterMarkOffset, messageSetBytes)
+
+
+# Fetch response
+
+fetchResponseItem =
+    string:topicName
+    int32:num
+    topicResponseItem{num}:topicDetails
+    -> (topicName, topicDetails)
+
+fetchResponse =
+    int32:num
+    fetchResponseItem{num}:responses
+    -> receiver.receivedFetchResponse(responses)
