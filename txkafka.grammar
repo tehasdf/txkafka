@@ -94,12 +94,18 @@ produceResponse =
 # Message set
 
 message =
-    int32:crc
+    <anything{4}>:crc
     int8:magicByte
     int8:attributes
     (('\xff\xff\xff\xff' -> None) | bytes):key  # key is optional: if not present, it has a length = \xff{4} (-1)
     bytes:value
-    -> (crc, magicByte, attributes, key, value)
+    -> Message(
+        crc=crc,
+        magicByte=magicByte,
+        attributes=attributes,
+        key=key,
+        value=value
+    )
 
 messageSetPart =
     int64:offset

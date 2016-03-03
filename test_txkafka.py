@@ -50,13 +50,12 @@ def test_parse_messageset(parser):
     assert len(messages) == 2
     offset, m1 = messages[0]
     assert offset == 0
-    crc, magic, attrs, key, val = m1
-    assert key is None
-    assert val == 'message 1'
+    assert m1.key is None
+    assert m1.value == 'message 1'
 
 
 def test_encode_messageset():
-    messages = [(0, 0, None, 'message 1'), (1, 0, None, 'message 2')]
+    messages = [(0, Message(value='message 1')), (1, Message(value='message 2'))]
     encoded = _encodeMessageSet(messages)
     assert encoded == EXAMPLE_MESSAGESET
 

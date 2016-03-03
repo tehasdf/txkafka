@@ -79,20 +79,12 @@ class Message(object):
 
 def _encodeMessageSet(messages):
     all_encoded = []
-    for message in messages:
-        offset, magic, key, value = message
-        attrs = 0
-        message_bytes = b''.join([
-            struct.pack('>bb', magic, attrs),
-            '\xff\xff\xff\xff' if key is None else encodeBytes(key),
-            encodeBytes(value)
-        ])
-        encoded = struct.pack('>qii',
+    for offset, message in messages:
+        message_bytes = message.encode()
+        encoded = struct.pack('>qi',
             offset,
-            len(message_bytes) + 4,  # add 4 for crc
-            crc32(message_bytes)
+            len(message_bytes)
         ) + message_bytes
-
         all_encoded.append(encoded)
 
     return b''.join(all_encoded)
@@ -203,10 +195,9 @@ class MessageSetReceiver(object):
         self._consumer = consumer
 
     def receiveMessage(self, offset, m):
-        crc, magicByte, attributes, key, value = m
-        self._messages.append((key, value))
+        self._messages.append(m)
         if self._consumer:
-            self.onMessageReceived(offset, key, value)
+            self.onMessageReceived(offset, m)
 
     def messageSetReceived(self):
         if self._consumer:
@@ -319,7 +310,9 @@ globalBindings = {
     'parseInt16': parseInt16,
     'parseInt32': parseInt32,
     'parseInt64': parseInt64,
-    'log': _doLog
+    'log': _doLog,
+
+    'Message': Message
 }
 
 KafkaClientProtocol = makeProtocol(grammar_source, KafkaSender, KafkaReceiver,
@@ -352,7 +345,7 @@ def zkconnected(z, reactor):
     r = yield proto.sender.produceRequest(1, 1000, [
         ('test', [
             (0, [
-                (3, 0, None, 'message 4')
+                (3, Message(value='message 4'))
             ])
         ])
     ])
