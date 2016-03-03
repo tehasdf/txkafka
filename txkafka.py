@@ -19,7 +19,7 @@ zk = ZookeeperClient(servers='localhost:2181')
 
 
 from parsley import makeProtocol
-
+from characteristic import attributes, Attribute
 
 log = Logger()
 
@@ -47,6 +47,34 @@ def _encodeTopicFetchRequest(elem):
         encodeString(name),
         encodeArray(meta, elementEncoder=_encodeTopicMeta)
     ])
+
+
+@attributes([
+    Attribute('key', default_value=None),
+    Attribute('value'),
+    Attribute('magicByte', default_value=0),
+    Attribute('attributes', default_value=0)
+])
+class Message(object):
+    def __init__(self, crc=None):
+        if crc is not None and crc != self.crc:
+            raise ValueError('Incorrect message crc (got %r, computed is %r)'
+                % (crc, self.crc))
+
+    @property
+    def crc(self):
+        encoded = self._encoded_without_crc()
+        return struct.pack('>i', crc32(encoded))
+
+    def _encoded_without_crc(self):
+        return b''.join([
+            struct.pack('>bb', self.magicByte, self.attributes),
+            '\xff\xff\xff\xff' if self.key is None else encodeBytes(self.key),
+            encodeBytes(self.value)
+        ])
+
+    def encode(self):
+        return self.crc + self._encoded_without_crc()
 
 
 def _encodeMessageSet(messages):

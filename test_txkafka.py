@@ -3,7 +3,7 @@ import pytest
 
 
 import parsley
-from txkafka import globalBindings, _encodeMessageSet
+from txkafka import globalBindings, _encodeMessageSet, Message
 
 
 @pytest.fixture(scope='session')
@@ -44,8 +44,8 @@ EXAMPLE_MESSAGESET = b''.join([
         "\x00\x00\x00\t", "message 2"
 ])
 
-def test_parse_messageset(parser):
 
+def test_parse_messageset(parser):
     messages = parser(EXAMPLE_MESSAGESET).messageSet()
     assert len(messages) == 2
     offset, m1 = messages[0]
@@ -59,3 +59,15 @@ def test_encode_messageset():
     messages = [(0, 0, None, 'message 1'), (1, 0, None, 'message 2')]
     encoded = _encodeMessageSet(messages)
     assert encoded == EXAMPLE_MESSAGESET
+
+
+def test_message_compute_crc():
+    m = Message(value='message 1')
+    assert m.crc == '\xfd\xf9-\x06'
+
+def test_message_crc_correct():
+    Message(value='message 1', crc='\xfd\xf9-\x06')
+
+def test_message_crc_incorrect():
+    with pytest.raises(ValueError):
+        Message(value='message 1', crc='asdf')
