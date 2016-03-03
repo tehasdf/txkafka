@@ -108,9 +108,22 @@ from ometa.grammar import OMeta
 from ometa.tube import TrampolinedParser
 
 class MessageSetReceiver(object):
-    currentRule = 'messageSet'
-    def messageSetReceived(self, offset, m):
-        print 'messageSetReceived', offset, m
+    currentRule = 'messageSetPart'
+
+    def __init__(self, consumer=None):
+        self._messages = []
+        self._consumer = consumer
+
+    def receiveMessage(self, offset, m):
+        crc, magicByte, attributes, key, value = m
+        self._messages.append((key, value))
+        if self._consumer:
+            self.onMessageReceived(offset, key, value)
+
+    def messageSetReceived(self):
+        if self._consumer:
+            self.onMessageSetReceived(self._messages)
+
 
 class KafkaReceiver(object):
     currentRule = 'receiveResponse'
@@ -134,13 +147,9 @@ class KafkaReceiver(object):
         self.currentRule = 'receiveResponse'
 
     def finishParsing(self, reason):
-        print 're', repr(reason)
-
-    def foo(self, correlationId, msg):
-        print 'foo', correlationId, repr(msg)
+        pass
 
     def prepareReceiveMessage(self, size, correlationId):
-        log.debug('prepare')
         self.correlationId = correlationId
         req = self._sender._types.get(correlationId)
         self.currentRule = {
@@ -186,8 +195,7 @@ class KafkaReceiver(object):
                     raise ValueError(
                         'Topic fetch error: {topic}/{partition}: {error}'.format(
                         topic=topicName, partition=partition, error=errorCode))
-                print 'part', repr(part)
-                # messageSetParser.receive(part)
+                messageSetParser.receive(part)
 
     def cleanup(self, response):
         self.messageSize = None
