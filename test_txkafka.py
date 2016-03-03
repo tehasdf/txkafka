@@ -18,7 +18,6 @@ def parser(grammar_source):
 
 @pytest.mark.parametrize('receivedBytes,parsed', [
     ('\x00\x00\x00\x00', ''),
-    ('\xff\xff\xff\xff', ''),
     ('\x00\x00\x00\x01a', 'a'),
     ('\x00\x00\x00\x02aa', 'aa'),
 ])
@@ -48,3 +47,8 @@ def test_parse_messageset(parser):
     ])
     messages = parser(messageset).messageSet()
     assert len(messages) == 2
+    offset, m1 = messages[0]
+    assert offset == 0
+    crc, magic, attrs, key, val = m1
+    assert key is None
+    assert val == 'message 1'

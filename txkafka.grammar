@@ -6,8 +6,7 @@ int64 = <anything{8}>:d -> parseInt64(d)
 strlen = <anything{2}>:d -> max([0, parseInt16(d)])
 string = strlen:size <anything{size}>:data -> data
 
-byteslen = <anything{4}>:d -> max([0, parseInt32(d)])
-bytes = byteslen:size <anything{size}>:data -> data
+bytes = int32:size <anything{size}>:data -> data
 
 int32list = int32:num int32{num}:nums -> nums
 
@@ -98,7 +97,7 @@ message =
     int32:crc
     int8:magicByte
     int8:attributes
-    bytes:key
+    (('\xff\xff\xff\xff' -> None) | bytes):key  # key is optional: if not present, it has a length = \xff{4} (-1)
     bytes:value
     -> (crc, magicByte, attributes, key, value)
 
@@ -106,7 +105,12 @@ messageSetPart =
     int64:offset
     int32:messageSize
     message:m
-    -> receiver.receiveMessage(offset, m)
+    -> (offset, m)
+
+receiveMessageSetPart = messageSetPart -> receiver.receiveMessage(*part)
+
+messageSet = messageSetPart*
+
 
 topicResponseItem =
     int32:partition

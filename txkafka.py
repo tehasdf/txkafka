@@ -108,7 +108,7 @@ from ometa.grammar import OMeta
 from ometa.tube import TrampolinedParser
 
 class MessageSetReceiver(object):
-    currentRule = 'messageSetPart'
+    currentRule = 'receiveMessageSetPart'
 
     def __init__(self, consumer=None):
         self._messages = []
@@ -260,7 +260,7 @@ def zkconnected(z, reactor):
 
 def main(reactor):
     globalLogBeginner.beginLoggingTo([textFileLogObserver(sys.stderr)])
-    return zk.connect().addCallback(zkconnected, reactor).addErrback(log.error)
+    return zk.connect().addCallback(zkconnected, reactor)
 
 if __name__ == '__main__':
     react(main)
