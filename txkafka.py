@@ -141,7 +141,11 @@ class KafkaSender(object):
             struct.pack('>hi', requiredAcks, timeout),
             encodeArray(topics, elementEncoder=_encodeProduceTopic)
         ])
-
+        d = Deferred()
+        self._waiting[correlationid] = d
+        self._types[correlationid] = 'produceRequest'
+        self.sendPacket(encoded)
+        return d
 
     def sendPacket(self, packet):
         self.log.debug('Sending packet: {length} bytes', length=len(packet))
@@ -210,10 +214,11 @@ class KafkaReceiver(object):
         req = self._sender._types.get(correlationId)
         self.currentRule = {
             'metadataRequest': 'metadataResponse',
-            'fetchRequest': 'fetchResponse'
+            'fetchRequest': 'fetchResponse',
+            'produceRequest': 'produceResponse',
 
         }.get(req, 'receiveUnknown')
-        log.debug('Now receiving {type}', type=self.currentRule)
+        self.log.debug('Now receiving {type}', type=self.currentRule)
 
         self.messageSize = size
 
@@ -238,7 +243,10 @@ class KafkaReceiver(object):
 
     @responder
     def receivedProduceResponse(self, r):
-        pass
+        self.log.debug('receivedProduceResponse: {resp!r}', resp=r)
+        for topicName, partitionResponses in r:
+            for partition, errorCode, offset in partitionResponses:
+                pass
 
     @responder
     def receivedFetchResponse(self, responses):
@@ -313,6 +321,13 @@ def zkconnected(z, reactor):
             ('test', [(0, 0, 65535)])
         ])
 
+    r = yield proto.sender.produceRequest(1, 1000, [
+        ('test', [
+            (0, [
+                (3, 0, None, 'message 4')
+            ])
+        ])
+    ])
 
 def main(reactor):
     globalLogBeginner.beginLoggingTo([textFileLogObserver(sys.stderr)])

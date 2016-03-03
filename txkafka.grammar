@@ -88,7 +88,7 @@ produceResponseItem =
 produceResponse =
     int32:num
     produceResponseItem{num}:responses
-    -> receiver.receivedProduceResponse(responses)  # not tested
+    -> receiver.receivedProduceResponse(responses)
 
 
 # Message set
@@ -107,7 +107,7 @@ messageSetPart =
     message:m
     -> (offset, m)
 
-receiveMessageSetPart = messageSetPart -> receiver.receiveMessage(*part)
+receiveMessageSetPart = messageSetPart:part -> receiver.receiveMessage(*part)
 
 messageSet = messageSetPart*
 
